@@ -1,0 +1,10 @@
+{
+  "domain": "ntpower",
+  "name": "NTPower Energy Fetcher",
+  "version": "1.0.0",
+  "documentation": "https://github.com/yourusername/ntpower-homeassistant",
+  "requirements": ["requests", "python-dateutil"],
+  "codeowners": ["@yourgithub"],
+  "config_flow": true,
+  "iot_class": "cloud_polling"
+}
