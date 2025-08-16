@@ -1,0 +1,51 @@
+refresh:
+  name: Refresh
+  description: Fetch incremental energy data and write TSV.
+  fields:
+    start_date:
+      description: ISO date YYYY-MM-DD to override default (Jan 1 of current year)
+      example: "2025-01-01"
+    end_date:
+      description: Optional ISO date YYYY-MM-DD end (default = today local)
+      example: "2025-08-01"
+    initial_sum:
+      description: Baseline meter reading (applied only if no baseline exists yet)
+      example: 61014
+    full_history:
+      description: If true and start_date missing, fetch from 2000-01-01
+      example: false
+    state_store:
+      description: Path to baseline persistence JSON
+      example: "/config/ntpower_data/stat_import_state.json"
+    reset_baseline:
+      description: If true, reset stored baseline before writing
+      example: false
+    continue_from_tsv:
+      description: Path to a previous TSV to seed baseline if no baseline persisted
+      example: "/config/ntpower_data/previous_counterdata.tsv"
+
+backfill:
+  name: Backfill
+  description: One-time full/large-range import; same fields as refresh, defaults to full_history=true.
+  fields:
+    start_date:
+      description: ISO date YYYY-MM-DD
+      example: "2023-01-01"
+    end_date:
+      description: ISO date YYYY-MM-DD
+      example: "2025-08-01"
+    initial_sum:
+      description: Baseline meter reading to start from
+      example: 61014
+    full_history:
+      description: If true and start_date missing, fetch from 2000-01-01
+      example: true
+    state_store:
+      description: Path to baseline persistence JSON
+      example: "/config/ntpower_data/stat_import_state.json"
+    reset_baseline:
+      description: If true, reset stored baseline before writing
+      example: false
+    continue_from_tsv:
+      description: Path to a previous TSV to seed baseline if no baseline persisted
+      example: "/config/ntpower_data/previous_counterdata.tsv"

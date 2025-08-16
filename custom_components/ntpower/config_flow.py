@@ -1,8 +1,11 @@
-from homeassistant import config_entries
+from __future__ import annotations
+
 import voluptuous as vol
+from homeassistant import config_entries
 from .const import (
     DOMAIN, CONF_ACCOUNT_ID, CONF_SERVICE_ID, CONF_USERNAME, CONF_PASSWORD,
-    CONF_STATISTIC_ID, CONF_UNIT, CONF_TIMEZONE, CONF_BASE_URL, CONF_PORTAL_ORIGIN
+    CONF_STATISTIC_ID, CONF_UNIT, CONF_TIMEZONE, CONF_BASE_URL, CONF_PORTAL_ORIGIN,
+    CONF_START_DATE, CONF_INITIAL_SUM
 )
 
 class NTPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -10,7 +13,7 @@ class NTPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
-            return self.async_create_entry(title="NTPower Energy", data=user_input)
+            return self.async_create_entry(title="NTPower", data=user_input)
 
         schema = vol.Schema({
             vol.Required(CONF_ACCOUNT_ID): str,
@@ -22,6 +25,7 @@ class NTPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_TIMEZONE, default="America/Toronto"): str,
             vol.Optional(CONF_BASE_URL, default="https://myaccountapi.ntpower.lhsharedservices.com"): str,
             vol.Optional(CONF_PORTAL_ORIGIN, default="https://myaccount.ntpower.ca"): str,
+            vol.Optional(CONF_START_DATE): str,  # YYYY-MM-DD
+            vol.Optional(CONF_INITIAL_SUM, default=0.0): float,
         })
-
         return self.async_show_form(step_id="user", data_schema=schema)

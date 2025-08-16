@@ -1,15 +1,25 @@
-import re
+from __future__ import annotations
+
 import io
 import csv
 import json
-import requests
+import re
 from datetime import datetime, timedelta
 from collections import defaultdict
-from dateutil import tz
-from urllib.parse import quote
 from pathlib import Path
+from typing import Dict, Any, List, Tuple
+from urllib.parse import quote
 
-# NEW: persistence of last processed timestamp & cumulative sum
+import requests
+from dateutil import tz
+
+from .const import (
+    CONF_ACCOUNT_ID, CONF_SERVICE_ID, CONF_USERNAME, CONF_PASSWORD,
+    CONF_STATISTIC_ID, CONF_UNIT, CONF_TIMEZONE, CONF_BASE_URL, CONF_PORTAL_ORIGIN,
+    CONF_START_DATE, CONF_END_DATE, CONF_INITIAL_SUM, CONF_FULL_HISTORY,
+    CONF_STATE_STORE, CONF_RESET_BASELINE, CONF_CONTINUE_FROM_TSV,
+)
+
 BASELINE_DEFAULT_PATH = "/config/ntpower_data/stat_import_state.json"
 
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -21,12 +31,8 @@ def looks_like_bearer(val: str) -> bool:
     v = val.strip().strip('"').strip("'")
     return bool(UUID_RE.match(v) or JWT_RE.match(v))
 
-def login_and_get_token(sess, username, password, portal_origin, login_url):
-    data = {
-        "username": username,
-        "password": password,
-        "client_id": "iam",
-    }
+def login_and_get_token(sess: requests.Session, username: str, password: str, portal_origin: str, login_url: str) -> str:
+    data = {"username": username, "password": password, "client_id": "iam"}
     headers = {
         "origin": portal_origin,
         "referer": f"{portal_origin}/",
@@ -38,31 +44,24 @@ def login_and_get_token(sess, username, password, portal_origin, login_url):
     r = sess.post(login_url, data=data, headers=headers, timeout=60)
     r.raise_for_status()
     obj = r.json()
-    token = (obj.get('access_token') or obj.get('token') or '').strip()
+    token = (obj.get("access_token") or obj.get("token") or "").strip()
     if not looks_like_bearer(token):
         token = next((v for v in obj.values() if isinstance(v, str) and looks_like_bearer(v)), None)
     if not looks_like_bearer(token):
         raise RuntimeError("Token not found in login response")
     return token
 
-def usage_url(base_url, account_id, service_id, start_str, end_str, tz_encoded):
+def usage_url(base_url: str, account_id: str, service_id: str, start_str: str, end_str: str, tz_encoded: str) -> str:
     return (
         f"{base_url}/usageapi/energy/account/{account_id}/service/{service_id}"
         f"/usageDownload?startDate={start_str}&endDate={end_str}&generation=false&tz={tz_encoded}"
     )
 
-def parse_json_data(data, points, tz_local):
-    """
-    Accepts multiple JSON shapes:
-      - [ { "intervalReadings": [ { "startTime": "...", "value": ... }, ... ] }, ... ]
-      - { "data": [ ...same as above... ] }
-      - Flat lists/dicts with startTime + (kwh | quantity | value)
-    """
+def parse_json_data(data: str, points: List[Tuple[datetime, float]], tz_local):
     def add_point(ts, val):
         if not ts or val is None:
             return
         try:
-            # supports "Z" and "-05:00" offsets
             dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
             dt_local = dt.astimezone(tz_local)
             points.append((dt_local, float(val)))
@@ -70,7 +69,6 @@ def parse_json_data(data, points, tz_local):
             pass
 
     obj = json.loads(data)
-
     containers = []
     if isinstance(obj, list):
         containers = obj
@@ -86,7 +84,6 @@ def parse_json_data(data, points, tz_local):
         if ts and val is not None:
             add_point(ts, val)
             continue
-
         for key in ("intervalReadings", "readings", "intervals"):
             arr = item.get(key)
             if isinstance(arr, list):
@@ -95,19 +92,18 @@ def parse_json_data(data, points, tz_local):
                     r_val = (r.get("kwh") or r.get("quantity") or r.get("value"))
                     add_point(r_ts, r_val)
 
-def parse_csv_data(data, points, tz_local):
+def parse_csv_data(data: str, points: List[Tuple[datetime, float]], tz_local):
     reader = csv.reader(io.StringIO(data))
     for row in reader:
         if len(row) < 2 or not row[0] or not row[1]:
             continue
         try:
-            # Example: "2024/01/01 00:00 to 2024/01/01 01:00"
             dt = datetime.strptime(row[0].split(" to ")[0], "%Y/%m/%d %H:%M")
             points.append((dt.replace(tzinfo=tz_local), float(row[1])))
-        except:
+        except Exception:
             pass
 
-def aggregate_points(points, fill_missing, tz_local):
+def aggregate_points(points: List[Tuple[datetime, float]], fill_missing: bool, tz_local):
     by_hour = defaultdict(float)
     for dt, val in points:
         hour = dt.replace(minute=0, second=0, microsecond=0)
@@ -120,13 +116,7 @@ def aggregate_points(points, fill_missing, tz_local):
             cur += timedelta(hours=1)
     return by_hour
 
-# ---------- NEW: Baseline persistence helpers ----------
-
-def _load_baseline(path: str, statistic_id: str):
-    """
-    Returns (last_sum, last_ts or None).
-    last_ts is timezone-aware ISO8601 string in file, converted back to datetime.
-    """
+def _load_baseline(path: str, statistic_id: str) -> Tuple[float, datetime | None]:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         entry = data.get(statistic_id)
@@ -155,25 +145,33 @@ def _save_baseline(path: str, statistic_id: str, last_sum: float, last_ts_dt: da
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(store, indent=2), encoding="utf-8")
     except Exception:
-        # Don't crash the run if state saving fails
         pass
 
-# ---------- MAIN FETCH/BUILD ----------
+def _resolve_date_window(config: Dict[str, Any], tz_local):
+    """Returns (start_date, end_date). end_date defaults to today local midnight."""
+    now_local = datetime.now(tz_local)
+    # end_date
+    end_date = config.get(CONF_END_DATE)
+    if isinstance(end_date, str) and end_date:
+        end_date = datetime.fromisoformat(end_date).replace(tzinfo=tz_local)
+    if not end_date:
+        end_date = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    # start_date
+    start_date = config.get(CONF_START_DATE)
+    if isinstance(start_date, str) and start_date:
+        start_date = datetime.fromisoformat(start_date).replace(tzinfo=tz_local)
+    elif config.get(CONF_FULL_HISTORY):
+        start_date = datetime(2000, 1, 1, tzinfo=tz_local)
+    else:
+        start_date = datetime(now_local.year, 1, 1, tzinfo=tz_local)
+    return start_date, end_date
 
-def fetch_energy_data(config: dict) -> list[dict]:
-    """
-    Returns list of dicts:
-      - timestamp: ISO8601 (hour start, tz-aware)
-      - state: hourly kWh from source
-      - sum: cumulative total BEFORE this hour (monotonic, used by HA)
-    """
-    timezone_name = config["timezone"]
+def fetch_energy_data(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    timezone_name = config.get(CONF_TIMEZONE, "America/Toronto")
     tz_local = tz.gettz(timezone_name)
 
-    now_local = datetime.now(tz_local)
-    start_date = datetime(now_local.year, 1, 1, tzinfo=tz_local)
-    end_date = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-
+    # Resolve time window
+    start_date, end_date = _resolve_date_window(config, tz_local)
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
     tz_encoded = quote(timezone_name)
@@ -181,19 +179,23 @@ def fetch_energy_data(config: dict) -> list[dict]:
     sess = requests.Session()
     token = login_and_get_token(
         sess,
-        config["username"],
-        config["password"],
-        config["portal_origin"],
-        f"{config['base_url']}/iamapi/iamapi/login"
+        config[CONF_USERNAME],
+        config[CONF_PASSWORD],
+        config.get(CONF_PORTAL_ORIGIN, "https://myaccount.ntpower.ca"),
+        f"{config.get(CONF_BASE_URL, 'https://myaccountapi.ntpower.lhsharedservices.com')}/iamapi/iamapi/login",
     )
     url = usage_url(
-        config["base_url"], config["account_id"], config["service_id"],
-        start_str, end_str, tz_encoded
+        config.get(CONF_BASE_URL, "https://myaccountapi.ntpower.lhsharedservices.com"),
+        config[CONF_ACCOUNT_ID],
+        config[CONF_SERVICE_ID],
+        start_str,
+        end_str,
+        tz_encoded,
     )
     headers = {
         "accept": "application/json,text/csv",
-        "origin": config["portal_origin"],
-        "referer": f"{config['portal_origin']}/",
+        "origin": config.get(CONF_PORTAL_ORIGIN, "https://myaccount.ntpower.ca"),
+        "referer": f"{config.get(CONF_PORTAL_ORIGIN, 'https://myaccount.ntpower.ca')}/",
         "x-requested-with": "XMLHttpRequest",
         "user-agent": "Mozilla/5.0",
         "authorization": f"Bearer {token}",
@@ -210,35 +212,39 @@ def fetch_energy_data(config: dict) -> list[dict]:
     Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
     Path(raw_path).write_text(raw, encoding="utf-8")
 
-    # Parse ? aggregate hourly
-    points = []
+    # Parse input
+    points: List[Tuple[datetime, float]] = []
     if raw.startswith("{") or raw.startswith("["):
         parse_json_data(raw, points, tz_local)
     else:
         parse_csv_data(raw, points, tz_local)
     by_hour = aggregate_points(points, config.get("fill_missing", False), tz_local)
 
-    # Determine baseline persistence
-    statistic_id = config.get("statistic_id", "sensor:ntpower_energy_export")
-    state_store = config.get("state_store", BASELINE_DEFAULT_PATH)
-    reset_baseline = bool(config.get("reset_baseline", False))
+    # Baseline / persistence
+    statistic_id = config.get(CONF_STATISTIC_ID, "sensor:ntpower_energy_export")
+    state_store = config.get(CONF_STATE_STORE, BASELINE_DEFAULT_PATH)
+    reset_baseline = bool(config.get(CONF_RESET_BASELINE, False))
+    explicit_initial = config.get(CONF_INITIAL_SUM)
 
     if reset_baseline:
         baseline_sum, last_ts = 0.0, None
     else:
         baseline_sum, last_ts = _load_baseline(state_store, statistic_id)
 
-    # Optionally continue from an existing TSV (one-time migration)
-    if last_ts is None and config.get("continue_from_tsv"):
+    if last_ts is None and explicit_initial is not None:
         try:
-            p = Path(config["continue_from_tsv"])
+            baseline_sum = float(explicit_initial)
+        except Exception:
+            pass
+
+    if last_ts is None and config.get(CONF_CONTINUE_FROM_TSV):
+        try:
+            p = Path(config[CONF_CONTINUE_FROM_TSV])
             if p.exists():
-                # read last non-header line
                 lines = p.read_text(encoding="utf-8").splitlines()
                 for line in reversed(lines[1:]):
                     parts = line.split("\t")
                     if len(parts) >= 5:
-                        # start is DD.MM.YYYY HH:MM, sum is 5th col
                         last_ts_str = parts[2]  # start
                         last_sum_str = parts[4]  # sum
                         last_ts = datetime.strptime(last_ts_str, "%d.%m.%Y %H:%M").replace(tzinfo=tz_local)
@@ -247,17 +253,15 @@ def fetch_energy_data(config: dict) -> list[dict]:
         except Exception:
             pass
 
-    # Build output: keep hourly in state; sum is total BEFORE this hour.
-    output = []
+    # Build output rows
+    output: List[Dict[str, Any]] = []
     running = float(baseline_sum)
     max_processed_ts = last_ts
 
     for hour in sorted(by_hour):
-        # Skip any hour we've already emitted (prevents dupes across runs)
         if last_ts is not None and hour <= last_ts:
             continue
         hourly = round(by_hour[hour], 3)
-
         output.append({
             "timestamp": hour.isoformat(),
             "state": hourly,
@@ -266,18 +270,12 @@ def fetch_energy_data(config: dict) -> list[dict]:
         running += hourly
         max_processed_ts = hour
 
-    # Persist new baseline (only if we actually added new rows)
     if max_processed_ts is not None and (last_ts is None or max_processed_ts > last_ts):
         _save_baseline(state_store, statistic_id, running, max_processed_ts)
 
     return output
 
-def write_tsv(points: list[dict], statistic_id: str, unit: str, path: str):
-    """
-    TSV header: statistic_id, unit, start, state, sum
-      - state: hourly usage (kWh)
-      - sum: cumulative total BEFORE the hour (monotonic)
-    """
+def write_tsv(points: List[Dict[str, Any]], statistic_id: str, unit: str, path: str):
     lines = ["statistic_id\tunit\tstart\tstate\tsum"]
     for row in points:
         t = datetime.fromisoformat(row["timestamp"]).strftime("%d.%m.%Y %H:00")
@@ -287,33 +285,14 @@ def write_tsv(points: list[dict], statistic_id: str, unit: str, path: str):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 
-def fetch_energy_and_write(config: dict):
-    """
-    Typical config:
-      {
-        "username": "...",
-        "password": "...",
-        "base_url": "https://myaccountapi.ntpower.lhsharedservices.com",
-        "portal_origin": "https://myaccount.ntpower.ca",
-        "account_id": "...",
-        "service_id": "...",
-        "timezone": "America/Toronto",
-        "statistic_id": "sensor:ntpower_energy_export",
-        "unit": "kWh",
-        "fill_missing": false,
-
-        # Optional:
-        "state_store": "/config/ntpower_data/stat_import_state.json",
-        "reset_baseline": false,
-        "continue_from_tsv": "/config/ntpower_data/previous_counterdata.tsv"
-      }
-    """
+def fetch_energy_and_write(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Fetch data and write TSV; returns the list of points written."""
     output = fetch_energy_data(config)
     tsv_path = "/config/ntpower_data/counterdata.tsv"
     write_tsv(
         output,
-        config.get("statistic_id", "sensor:ntpower_energy_export"),
-        config.get("unit", "kWh"),
-        tsv_path
+        config.get(CONF_STATISTIC_ID, "sensor:ntpower_energy_export"),
+        config.get(CONF_UNIT, "kWh"),
+        tsv_path,
     )
     return output
