@@ -1,0 +1,11 @@
+DOMAIN = "ntpower"
+
+CONF_ACCOUNT_ID = "account_id"
+CONF_SERVICE_ID = "service_id"
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
+CONF_STATISTIC_ID = "statistic_id"
+CONF_UNIT = "unit"
+CONF_TIMEZONE = "timezone"
+CONF_BASE_URL = "base_url"
+CONF_PORTAL_ORIGIN = "portal_origin"
