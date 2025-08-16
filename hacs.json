@@ -1,0 +1,11 @@
+{
+  "name": "NTPower Energy Fetcher",
+  "description": "Grab energy usage from NT Power",
+  "domain": "stratasys",
+  "country": "worldwide",
+  "codeowners": ["@bnevets27"],
+  "requirements": [],
+  "documentation": "https://github.com/bnevets27/HA---NT-Power-Export",
+  "version": "1.0.0",
+  "type": "integration"
+}
