@@ -1,0 +1,25 @@
+Chain this togthere with: https://github.com/klausj1/homeassistant-statistics
+
+Example automation to trigger this component to pull the file from NT power, then trigger the statistics import
+
+
+alias: "NTPower: Fetch and Import Energy Data"
+description: ""
+triggers:
+  - at: "02:00:00"
+    trigger: time
+actions:
+  - action: ntpower.refresh
+    data: {}
+  - delay:
+      hours: 0
+      minutes: 0
+      seconds: 30
+      milliseconds: 0
+  - data:
+      timezone_identifier: America/Toronto
+      delimiter: \t
+      decimal: false
+      filename: ntpower_data/counterdata.tsv
+    action: import_statistics.import_from_file
+mode: single
