@@ -51,7 +51,7 @@ During initial setup, you'll need to provide your NT Power account information:
 
 ### Required Fields
 To get your Account and Service ID, go to "my energy usage" the URL will be formatted as follows:
-https://myaccount.ntpower.ca/myaccount/myaccount#!/energyuse/**ACCOUNT ID**/**SERVICE ID**
+"https://myaccount.ntpower.ca/myaccount/myaccount#!/energyuse/***ACCOUNT ID***/***SERVICE ID***"
 
 - **Account ID**: Find this on your NT Power bill or online account (format: `00469442-05`)
 - **Service ID**: Also on your bill or account (format: `00469442-E-05`) 
@@ -362,4 +362,5 @@ To completely reset and re-import all data:
 - **Automation Timing**: Run daily refresh early morning (2-6 AM) when NT Power data is most current
 
 📖 **For detailed meter reset instructions, see [METER_RESET_GUIDE.md](METER_RESET_GUIDE.md)**
+
 
