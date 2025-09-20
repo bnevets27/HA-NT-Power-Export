@@ -1,1 +1,0 @@
-# Placeholder: To be implemented if exposing data to Home Assistant as sensors
