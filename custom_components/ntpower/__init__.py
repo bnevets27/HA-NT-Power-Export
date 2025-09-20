@@ -12,6 +12,7 @@ from .const import (
     DOMAIN,
     CONF_START_DATE, CONF_END_DATE, CONF_INITIAL_SUM, CONF_FULL_HISTORY,
     CONF_STATE_STORE, CONF_RESET_BASELINE, CONF_CONTINUE_FROM_TSV,
+    CONF_METER_READING_DATE, CONF_METER_READING_KWH, CONF_RECALCULATE_FROM_METER,
 )
 from .fetch_energy import fetch_energy_and_write
 
@@ -19,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SERVICE_REFRESH = "refresh"
 SERVICE_BACKFILL = "backfill"
+SERVICE_RESET_FROM_METER = "reset_from_meter_reading"
 
 SERVICE_SCHEMA = vol.Schema({
     vol.Optional(CONF_START_DATE): str,
@@ -28,6 +30,13 @@ SERVICE_SCHEMA = vol.Schema({
     vol.Optional(CONF_STATE_STORE): str,
     vol.Optional(CONF_RESET_BASELINE): bool,
     vol.Optional(CONF_CONTINUE_FROM_TSV): str,
+})
+
+METER_RESET_SCHEMA = vol.Schema({
+    vol.Required(CONF_METER_READING_DATE): str,
+    vol.Required(CONF_METER_READING_KWH): vol.Coerce(float),
+    vol.Optional(CONF_START_DATE): str,
+    vol.Optional(CONF_END_DATE): str,
 })
 
 def _merge(base: dict, overrides: dict | None) -> dict:
@@ -58,9 +67,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.exception("ntpower.backfill failed: %s", exc)
             raise HomeAssistantError(str(exc)) from exc
 
+    async def handle_reset_from_meter(call: ServiceCall):
+        try:
+            config = _merge(hass.data[DOMAIN][entry.entry_id], call.data)
+            # Enable recalculation from meter reading
+            config[CONF_RECALCULATE_FROM_METER] = True
+            await hass.async_add_executor_job(fetch_energy_and_write, config)
+        except Exception as exc:
+            _LOGGER.exception("ntpower.reset_from_meter_reading failed: %s", exc)
+            raise HomeAssistantError(str(exc)) from exc
+
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, handle_refresh, schema=SERVICE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_BACKFILL, handle_backfill, schema=SERVICE_SCHEMA)
-    _LOGGER.debug("NTPower services registered: %s, %s", SERVICE_REFRESH, SERVICE_BACKFILL)
+    hass.services.async_register(DOMAIN, SERVICE_RESET_FROM_METER, handle_reset_from_meter, schema=METER_RESET_SCHEMA)
+    _LOGGER.debug("NTPower services registered: %s, %s, %s", SERVICE_REFRESH, SERVICE_BACKFILL, SERVICE_RESET_FROM_METER)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

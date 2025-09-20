@@ -49,3 +49,20 @@ backfill:
     continue_from_tsv:
       description: Path to a previous TSV to seed baseline if no baseline persisted
       example: "/config/ntpower_data/previous_counterdata.tsv"
+
+reset_from_meter_reading:
+  name: Reset from Meter Reading
+  description: Reset baseline calculation using a known meter reading at a specific date/time.
+  fields:
+    meter_reading_date:
+      description: Date and time of known meter reading (YYYY-MM-DD HH:MM)
+      example: "2025-09-15 12:00"
+    meter_reading_kwh:
+      description: Known meter reading in kWh at that date/time
+      example: 83625.120
+    start_date:
+      description: Optional start date to override data fetch range
+      example: "2025-01-01"
+    end_date:
+      description: Optional end date to override data fetch range
+      example: "2025-09-20"
