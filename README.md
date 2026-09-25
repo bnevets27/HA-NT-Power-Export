@@ -1,3 +1,9 @@
+
+## This repo has been archive now that there is a project that can read and input green button data into home assistant. You can find that project here: https://github.com/rocketraman/open-green-button-homeassistant
+
+The repo does use a very different way to pull data from NT Hydro so it may have some uses still.
+
+
 # NTPower — Home Assistant Integration
 
 A custom Home Assistant integration that fetches energy usage data from NT Power and imports it into Home Assistant's long-term statistics. Supports incremental daily updates, full historical backfills, and baseline recalibration after manual corrections.
